@@ -1,8 +1,11 @@
-import { ChatOpenAI } from "@langchain/openai";
+import { ChatOpenAI, OpenAIEmbeddings } from "@langchain/openai";
 import { ChatPromptTemplate, MessagesPlaceholder } from "@langchain/core/prompts"
 import { createOpenAIFunctionsAgent, AgentExecutor } from "langchain/agents"
-
+import { CheerioWebBaseLoader } from "langchain/document_loaders/web/cheerio"
+import { RecursiveCharacterTextSplitter } from "langchain/text_splitter"
+import { MemoryVectorStore } from "langchain/vectorstores/memory"
 import { TavilySearchResults } from "@langchain/community/tools/tavily_search"
+import { createRetrieverTool } from "langchain/tools/retriever"
 
 import readline from "readline";
 
@@ -10,6 +13,27 @@ import { AIMessage, HumanMessage } from "@langchain/core/messages"
 
 import * as dotenv from "dotenv";
 dotenv.config();
+
+
+
+const loader = new CheerioWebBaseLoader("https://js.langchain.com/docs/expression_language");
+const docs= await loader.load();
+
+const splitter = new RecursiveCharacterTextSplitter({
+    chunkSize: 200,
+    chunkOverlap: 20
+})
+
+const splitDocs = await splitter.splitDocuments(docs)
+
+const embeddings = new OpenAIEmbeddings()
+const vectorStore = await MemoryVectorStore.fromDocuments(splitDocs, embeddings)
+
+//Retrieve data
+const retriever = vectorStore.asRetriever({
+    k: 2
+});
+
 
 const model = new ChatOpenAI({
     modelName: "gpt-3.5-turbo-1106",
@@ -24,8 +48,12 @@ const prompt = ChatPromptTemplate.fromMessages([
 ]);
 
 // Create & Assign Tools
-const searchTool = new TavilySearchResults()
-const tools = [searchTool];
+const searchTool = new TavilySearchResults();
+const retrieverTool = createRetrieverTool(retriever, {
+    name: "lcel_search",
+    description: "Use this tool when searching for information about Lanchain Expression Language (LCEL)"
+});
+const tools = [searchTool, retrieverTool];
 
 // Create Agent
 const agent = await createOpenAIFunctionsAgent({
